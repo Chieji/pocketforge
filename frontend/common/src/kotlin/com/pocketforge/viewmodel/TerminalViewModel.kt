@@ -18,6 +18,9 @@ class TerminalViewModel(private val containerId: String) {
     private val client = HttpClient {
         install(WebSockets)
     }
+    
+    // Store the active WebSocket session
+    private var session: DefaultClientWebSocketSession? = null
 
     var terminalOutput by mutableStateOf("Connecting to container $containerId...\n")
         private set
@@ -32,34 +35,30 @@ class TerminalViewModel(private val containerId: String) {
     private fun connectToTerminal() {
         scope.launch {
             try {
-                client.webSocket(
+                // Establish a single, persistent WebSocket session
+                session = client.webSocketSession(
                     method = HttpMethod.Get,
-                    host = "localhost", // Replace with actual backend URL
+                    host = "localhost", // TODO: Replace with actual backend URL from config
                     port = 8080,
                     path = "/containers/$containerId/terminal"
-                ) {
-                    terminalOutput += "Connection established. Type 'help' and press Enter.\n"
-                    
-                    // Incoming messages
-                    val incomingJob = launch {
-                        try {
-                            for (frame in incoming) {
-                                if (frame is Frame.Text) {
-                                    terminalOutput += frame.readText()
-                                }
-                            }
-                        } catch (e: ClosedReceiveChannelException) {
-                            terminalOutput += "\n[Connection closed by server]\n"
-                        } catch (e: Exception) {
-                            terminalOutput += "\n[Error: ${e.message}]\n"
-                        }
+                )
+                
+                terminalOutput += "Connection established. Type 'help' and press Enter.\n"
+                
+                // Start listening for incoming messages on the session
+                for (frame in session!!.incoming) {
+                    if (frame is Frame.Text) {
+                        terminalOutput += frame.readText()
                     }
-                    
-                    // Keep the connection alive until the scope is cancelled
-                    incomingJob.join()
                 }
+                
+            } catch (e: ClosedReceiveChannelException) {
+                terminalOutput += "\n[Connection closed by server]\n"
             } catch (e: Exception) {
                 terminalOutput += "\n[Failed to connect: ${e.message}]\n"
+            } finally {
+                session?.close()
+                session = null
             }
         }
     }
@@ -71,22 +70,17 @@ class TerminalViewModel(private val containerId: String) {
     fun onEnterPressed() {
         val command = terminalInput.trim()
         if (command.isNotEmpty()) {
-            // Send command to WebSocket
+            // Send command to the persistent WebSocket session
             scope.launch {
                 try {
-                    client.webSocketSession(
-                        method = HttpMethod.Get,
-                        host = "localhost",
-                        port = 8080,
-                        path = "/containers/$containerId/terminal"
-                    ).send(Frame.Text(command))
+                    // Send the command followed by a newline to simulate pressing Enter
+                    session?.send(Frame.Text("$command\n"))
                 } catch (e: Exception) {
                     terminalOutput += "\n[Error sending command: ${e.message}]\n"
                 }
             }
             
-            // Clear input and append to output immediately for local echo effect
-            terminalOutput += "$command\n"
+            // Clear input. The output will be echoed back from the server/PTY.
             terminalInput = ""
         }
     }

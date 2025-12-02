@@ -53,6 +53,7 @@ fun TerminalView(
         LaunchedEffect(outputLines.size) {
             if (outputLines.isNotEmpty()) {
                 coroutineScope.launch {
+                    // Scroll to the last item (the input line)
                     scrollState.animateScrollToItem(outputLines.size - 1)
                 }
             }
@@ -65,6 +66,9 @@ fun TerminalView(
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Display the current prompt (e.g., user@container$)
+            // In a real PTY, the prompt is part of the terminalOutput.
+            // For this simulation, we use a fixed prompt for the input line.
             Text(
                 text = "$ ",
                 color = Color.Green,
