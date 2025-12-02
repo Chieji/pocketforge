@@ -1,0 +1,615 @@
+--- File: PocketForge/frontend/common/src/kotlin/App.kt ---
+package com.pocketforge
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import cafe.adriel.voyager.navigator.Navigator
+import com.pocketforge.ui.screens.LoginScreen
+
+@Composable
+fun App() {
+    MaterialTheme {
+        Navigator(LoginScreen)
+    }
+}
+
+expect fun getPlatformName(): String
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/extensions/ExtensionHost.kt ---
+package com.pocketforge.extensions
+
+import com.pocketforge.models.ExtensionManifest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * The ExtensionHost is responsible for loading, sandboxing, and managing the lifecycle
+ * of all installed PocketForge extensions.
+ *
+ * In a real KMP application, this would involve platform-specific implementations
+ * for the JavaScript runtime (e.g., Duktape on Android, JavaScriptCore on iOS).
+ * For this architecture, we define the core interface.
+ */
+class ExtensionHost {
+    private val _loadedExtensions = MutableStateFlow<Map<String, ExtensionManifest>>(emptyMap())
+    val loadedExtensions: StateFlow<Map<String, ExtensionManifest>> = _loadedExtensions.asStateFlow()
+
+    /**
+     * Loads an extension from the local file system.
+     * @param extensionId The unique ID of the extension.
+     * @param manifest The parsed manifest file.
+     */
+    fun loadExtension(extensionId: String, manifest: ExtensionManifest) {
+        // K-God Persona: Think architecturally. This simulates the dynamic loading.
+        println("Loading extension: ${manifest.displayName} (${manifest.version})")
+        
+        _loadedExtensions.value = _loadedExtensions.value + (extensionId to manifest)
+        
+        // 1. Initialize the sandboxed JS runtime.
+        // 2. Load and execute the 'main' script (e.g., extension.js).
+        // 3. Register contributions (commands, views) to the main UI thread.
+        
+        // Example: Register a command from the extension
+        manifest.contributes["commands"]?.let { commandsJson ->
+            // Parse commandsJson and register them in the Command Palette
+            println("Registered commands for ${manifest.name}")
+        }
+    }
+
+    /**
+     * Executes a command contributed by an extension.
+     */
+    fun executeCommand(commandId: String, args: List<Any>) {
+        println("Executing extension command: $commandId with args: $args")
+        // Logic to find the responsible extension and execute the corresponding JS function
+    }
+    
+    // Placeholder for platform-specific file system access (e.g., for VXIXInstaller)
+    companion object {
+        // In a real app, this would be a platform-specific file system service
+        fun getExtensionInstallPath(extensionId: String): String {
+            return "/data/pocketforge/extensions/$extensionId"
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/models/Extension.kt ---
+package com.pocketforge.models
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Extension(
+    val id: String, // e.g., "pocketforge.git-lens-mobile"
+    val name: String,
+    val publisher: String,
+    val version: String,
+    val description: String,
+    val download_url: String, // URL to the VXIX file
+    val install_count: Int,
+    val isInstalled: Boolean = false
+)
+
+@Serializable
+data class ExtensionManifest(
+    val name: String,
+    val displayName: String,
+    val version: String,
+    val publisher: String,
+    val description: String,
+    val main: String, // e.g., "extension.js"
+    val activationEvents: List<String>,
+    val contributes: Map<String, kotlinx.serialization.json.JsonElement>
+)
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/components/TerminalView.kt ---
+package com.pocketforge.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.pocketforge.viewmodel.TerminalViewModel
+import kotlinx.coroutines.launch
+
+@Composable
+fun TerminalView(
+    modifier: Modifier = Modifier,
+    viewModel: TerminalViewModel
+) {
+    val scrollState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Split output into lines for display
+    val outputLines = viewModel.terminalOutput.split('\n')
+
+    Column(modifier = modifier.background(Color(0xFF1E1E1E))) {
+        // 1. Terminal Output Area
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            state = scrollState
+        ) {
+            items(outputLines) { line ->
+                Text(
+                    text = line,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                )
+            }
+        }
+
+        // Auto-scroll to bottom on new output
+        LaunchedEffect(outputLines.size) {
+            if (outputLines.isNotEmpty()) {
+                coroutineScope.launch {
+                    scrollState.animateScrollToItem(outputLines.size - 1)
+                }
+            }
+        }
+
+        // 2. Terminal Input Area
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "$ ",
+                color = Color.Green,
+                fontSize = 14.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+            )
+            
+            BasicTextField(
+                value = viewModel.terminalInput,
+                onValueChange = viewModel::onInputChanged,
+                textStyle = TextStyle(
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                ),
+                singleLine = true,
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onKeyEvent {
+                        if (it.key == Key.Enter && it.type == KeyEventType.KeyUp) {
+                            viewModel.onEnterPressed()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+            )
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/screens/ExtensionManagerScreen.kt ---
+package com.pocketforge.ui.screens
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import com.pocketforge.models.Extension
+import com.pocketforge.viewmodel.ExtensionViewModel
+
+object ExtensionManagerScreen : Screen {
+    @Composable
+    override fun Content() {
+        val navigator = LocalNavigator.currentOrThrow
+        val viewModel = remember { ExtensionViewModel() }
+        val extensions by viewModel.extensions.collectAsState()
+        val isLoading by viewModel.isLoading.collectAsState()
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Extensions: Marketplace") },
+                    navigationIcon = {
+                        IconButton(onClick = { navigator.pop() }) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { paddingValues ->
+            Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+                if (isLoading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                
+                LazyColumn(contentPadding = PaddingValues(8.dp)) {
+                    items(extensions) { extension ->
+                        ExtensionCard(extension, viewModel::installExtension)
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExtensionCard(extension: Extension, onInstall: (Extension) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { /* Navigate to detail view */ }
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(extension.name, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "${extension.publisher} • v${extension.version} • ${extension.install_count} installs",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(extension.description, style = MaterialTheme.typography.bodyMedium)
+        }
+        
+        Spacer(Modifier.width(16.dp))
+        
+        Button(
+            onClick = { onInstall(extension) },
+            enabled = !extension.isInstalled,
+            modifier = Modifier.wrapContentWidth()
+        ) {
+            if (extension.isInstalled) {
+                Text("Installed")
+            } else {
+                Icon(Icons.Filled.Download, contentDescription = "Install", modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Install")
+            }
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/screens/LoginScreen.kt ---
+package com.pocketforge.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+
+object LoginScreen : Screen {
+    @Composable
+    override fun Content() {
+        val navigator = LocalNavigator.currentOrThrow
+
+        Scaffold(
+            topBar = {
+                TopAppBar(title = { Text("PocketForge") })
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Welcome to PocketForge",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(bottom = 32.dp)
+                )
+                
+                Button(
+                    onClick = {
+                        // In a real app, this would initiate the GitHub OAuth flow
+                        println("Initiating GitHub Login...")
+                        // Mock navigation to terminal with a placeholder container ID
+                        navigator.push(TerminalScreen("pf-c-12345"))
+                    },
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    Text("Sign in with GitHub")
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                
+                TextButton(onClick = {
+                    // Placeholder for offline mode entry
+                    navigator.push(TerminalScreen("local-c-0001"))
+                }) {
+                    Text("Continue in Offline Mode")
+                }
+            }
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/screens/TerminalScreen.kt ---
+package com.pocketforge.ui.screens
+
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import com.pocketforge.ui.components.TerminalView
+import com.pocketforge.viewmodel.TerminalViewModel
+
+data class TerminalScreen(val containerId: String) : Screen {
+    @Composable
+    override fun Content() {
+        val viewModel = remember { TerminalViewModel(containerId) }
+        val navigator = LocalNavigator.currentOrThrow
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("PocketForge - Container: $containerId") },
+                    actions = {
+                        IconButton(onClick = { navigator.push(ExtensionManagerScreen) }) {
+                            Icon(Icons.Filled.Extension, contentDescription = "Extensions")
+                        }
+                    }
+                )
+            }
+        ) { paddingValues ->
+            TerminalView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                viewModel = viewModel
+            )
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/viewmodel/ExtensionViewModel.kt ---
+package com.pocketforge.viewmodel
+
+import com.pocketforge.models.Extension
+import com.pocketforge.extensions.ExtensionHost
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+
+class ExtensionViewModel {
+    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val client = HttpClient {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true })
+        }
+    }
+    private val extensionHost = ExtensionHost()
+
+    private val _extensions = MutableStateFlow<List<Extension>>(emptyList())
+    val extensions: StateFlow<List<Extension>> = _extensions
+    
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    init {
+        loadMarketplaceExtensions()
+    }
+
+    private fun loadMarketplaceExtensions() {
+        scope.launch {
+            _isLoading.value = true
+            try {
+                // Fetch from the Rust backend API
+                val fetchedExtensions: List<Extension> = client.get("http://localhost:8080/extensions/marketplace").body()
+                _extensions.value = fetchedExtensions
+            } catch (e: Exception) {
+                println("Error fetching extensions: ${e.message}")
+                // Fallback to mock data if API is unavailable
+                _extensions.value = listOf(
+                    Extension("pocketforge.git-lens-mobile", "GitLens Mobile", "PocketForge Team", "1.0.0", "Visualize code authorship at a glance via Git blame annotations.", "https://mock.url/git-lens.vxix", 15420, isInstalled = false),
+                    Extension("pocketforge.rust-analyzer-lite", "Rust Analyzer Lite", "Community", "0.1.5", "Lightweight language server for Rust projects.", "https://mock.url/rust-analyzer.vxix", 8900, isInstalled = true)
+                )
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun installExtension(extension: Extension) {
+        scope.launch {
+            // K-God Persona: Build systems, not scripts. This is the installation orchestration.
+            println("Starting installation for ${extension.name}...")
+            
+            // 1. Download the VXIX file (omitted for brevity, requires platform-specific file IO)
+            // 2. Install the VXIX file (extract and validate manifest)
+            //    val manifest = VXIXInstaller.install(extension.download_url)
+            
+            // Simulation: Assume successful installation and manifest parsing
+            val manifest = Json.decodeFromString<com.pocketforge.models.ExtensionManifest>("""
+                {
+                  "name": "${extension.id}",
+                  "displayName": "${extension.name}",
+                  "version": "${extension.version}",
+                  "publisher": "${extension.publisher}",
+                  "description": "${extension.description}",
+                  "main": "extension.js",
+                  "activationEvents": ["onStartup"],
+                  "contributes": {}
+                }
+            """)
+            
+            // 3. Load the extension into the host
+            extensionHost.loadExtension(extension.id, manifest)
+            
+            // 4. Update UI state
+            _extensions.update { list ->
+                list.map { if (it.id == extension.id) it.copy(isInstalled = true) else it }
+            }
+            println("${extension.name} installed and loaded.")
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/viewmodel/TerminalViewModel.kt ---
+package com.pocketforge.viewmodel
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import io.ktor.client.*
+import io.ktor.client.plugins.websocket.*
+import io.ktor.http.*
+import io.ktor.websocket.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.launch
+
+class TerminalViewModel(private val containerId: String) {
+    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val client = HttpClient {
+        install(WebSockets)
+    }
+
+    var terminalOutput by mutableStateOf("Connecting to container $containerId...\n")
+        private set
+    
+    var terminalInput by mutableStateOf("")
+        private set
+
+    init {
+        connectToTerminal()
+    }
+
+    private fun connectToTerminal() {
+        scope.launch {
+            try {
+                client.webSocket(
+                    method = HttpMethod.Get,
+                    host = "localhost", // Replace with actual backend URL
+                    port = 8080,
+                    path = "/containers/$containerId/terminal"
+                ) {
+                    terminalOutput += "Connection established. Type 'help' and press Enter.\n"
+                    
+                    // Incoming messages
+                    val incomingJob = launch {
+                        try {
+                            for (frame in incoming) {
+                                if (frame is Frame.Text) {
+                                    terminalOutput += frame.readText()
+                                }
+                            }
+                        } catch (e: ClosedReceiveChannelException) {
+                            terminalOutput += "\n[Connection closed by server]\n"
+                        } catch (e: Exception) {
+                            terminalOutput += "\n[Error: ${e.message}]\n"
+                        }
+                    }
+                    
+                    // Keep the connection alive until the scope is cancelled
+                    incomingJob.join()
+                }
+            } catch (e: Exception) {
+                terminalOutput += "\n[Failed to connect: ${e.message}]\n"
+            }
+        }
+    }
+
+    fun onInputChanged(newInput: String) {
+        terminalInput = newInput
+    }
+
+    fun onEnterPressed() {
+        val command = terminalInput.trim()
+        if (command.isNotEmpty()) {
+            // Send command to WebSocket
+            scope.launch {
+                try {
+                    client.webSocketSession(
+                        method = HttpMethod.Get,
+                        host = "localhost",
+                        port = 8080,
+                        path = "/containers/$containerId/terminal"
+                    ).send(Frame.Text(command))
+                } catch (e: Exception) {
+                    terminalOutput += "\n[Error sending command: ${e.message}]\n"
+                }
+            }
+            
+            // Clear input and append to output immediately for local echo effect
+            terminalOutput += "$command\n"
+            terminalInput = ""
+        }
+    }
+    
+    // Placeholder for AI Agent interaction
+    fun runAiAgent(prompt: String) {
+        // Logic to call the MTC API endpoint
+        terminalOutput += "\n[AI Agent called with prompt: $prompt]\n"
+    }
+}
+-e 
+

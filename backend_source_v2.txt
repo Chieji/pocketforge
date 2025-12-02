@@ -1,0 +1,519 @@
+--- File: PocketForge/backend/src/api/ai.rs ---
+use axum::{
+    response::IntoResponse,
+    Json,
+};
+use http::StatusCode;
+use serde::{Serialize, Deserialize};
+
+// --- Request/Response Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct MTCRequest {
+    pub prompt: String,
+    pub context: String, // Current file content, error logs, etc.
+    pub tools: Vec<String>, // List of available tools (e.g., "file_read", "shell_exec", "git_commit")
+}
+
+#[derive(Debug, Serialize)]
+pub struct ToolCall {
+    pub tool_name: String,
+    pub args: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MTCResponse {
+    pub response: String,
+    pub tool_calls: Option<Vec<ToolCall>>,
+}
+
+// --- Handler ---
+
+pub async fn mtc_handler(Json(payload): Json<MTCRequest>) -> impl IntoResponse {
+    // K-God Persona: Precision execution. This is a lightweight MTC server that
+    // forwards the request to the actual LLM (Claude/Grok) and processes the tool calls.
+
+    // 1. Prepare the payload for the external LLM API (e.g., Anthropic Messages API)
+    // The actual LLM call is omitted here as it requires a live API key and network access,
+    // but the structure of the response is simulated.
+
+    // 2. Simulate LLM decision based on prompt and context
+    let tool_calls: Option<Vec<ToolCall>> = if payload.prompt.contains("fix the bug") {
+        Some(vec![
+            ToolCall {
+                tool_name: "file_read".to_string(),
+                args: serde_json::json!({"path": "/project/src/buggy_file.js"}),
+            },
+            ToolCall {
+                tool_name: "shell_exec".to_string(),
+                args: serde_json::json!({"command": "npm test"}),
+            },
+        ])
+    } else if payload.prompt.contains("commit changes") {
+        Some(vec![
+            ToolCall {
+                tool_name: "git_commit".to_string(),
+                args: serde_json::json!({"message": "AI: Automated bug fix."}),
+            },
+        ])
+    } else {
+        None
+    };
+
+    let response_text = if tool_calls.is_some() {
+        "I have identified the necessary steps and generated tool calls to address your request."
+    } else {
+        "Understood. I will provide a direct text response."
+    };
+
+    let response = MTCResponse {
+        response: response_text.to_string(),
+        tool_calls,
+    };
+
+    (StatusCode::OK, Json(response))
+}
+-e 
+
+--- File: PocketForge/backend/src/api/auth.rs ---
+use axum::{
+    extract::{Query, State},
+    response::{IntoResponse, Redirect},
+    Json,
+};
+use http::StatusCode;
+use serde::Deserialize;
+use crate::models::{AuthToken, Claims, User};
+use jsonwebtoken::{encode, EncodingKey, Header};
+use chrono::{Utc, Duration};
+
+// --- Configuration (In a real app, these would be read from environment variables) ---
+const GITHUB_CLIENT_ID: &str = "YOUR_GITHUB_CLIENT_ID";
+const GITHUB_CLIENT_SECRET: &str = "YOUR_GITHUB_CLIENT_SECRET";
+const REDIRECT_URI: &str = "http://localhost:8080/auth/callback";
+const JWT_SECRET: &[u8] = b"SUPER_SECRET_KEY_FOR_POCKETFORGE"; // MUST be replaced
+
+// --- Request/Response Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct AuthQuery {
+    code: String,
+    state: Option<String>,
+}
+
+// --- Handlers ---
+
+pub async fn github_auth() -> impl IntoResponse {
+    // K-God Persona: Write code that ships. Production-ready from the start.
+    let url = format!(
+        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=repo,user:email",
+        GITHUB_CLIENT_ID, REDIRECT_URI
+    );
+    Redirect::to(&url)
+}
+
+pub async fn github_callback(
+    Query(query): Query<AuthQuery>,
+    // State(pool): State<sqlx::PgPool>, // Assuming we have a DB pool in state
+) -> Result<Json<AuthToken>, (StatusCode, String)> {
+    // 1. Exchange code for GitHub access token
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://github.com/login/oauth/access_token")
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({
+            "client_id": GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "code": query.code,
+            "redirect_uri": REDIRECT_URI,
+        }))
+        .send()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("GitHub token exchange failed: {}", e)))?;
+
+    let github_token_response: serde_json::Value = res.json().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse GitHub token response: {}", e)))?;
+    let github_access_token = github_token_response["access_token"].as_str().ok_or((StatusCode::UNAUTHORIZED, "No access token from GitHub".to_string()))?;
+
+    // 2. Get user info from GitHub
+    let user_res = client
+        .get("https://api.github.com/user")
+        .header("Authorization", format!("Bearer {}", github_access_token))
+        .header("User-Agent", "PocketForge-App")
+        .send()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("GitHub user info failed: {}", e)))?;
+
+    let github_user: serde_json::Value = user_res.json().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse GitHub user info: {}", e)))?;
+    let github_id = github_user["id"].as_i64().ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Missing GitHub ID".to_string()))?.to_string();
+    let github_login = github_user["login"].as_str().ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Missing GitHub login".to_string()))?.to_string();
+
+    // 3. Upsert user into database (Simulated)
+    // In a real app, we'd use `supabase::upsert_user(...)` here.
+    let user_id = uuid::Uuid::new_v4(); // Mock user ID
+
+    // 4. Generate JWT
+    let now = Utc::now();
+    let expiration = now + Duration::days(7);
+    let claims = Claims {
+        user_id,
+        exp: expiration.timestamp() as usize,
+    };
+
+    let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(JWT_SECRET))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JWT encoding failed: {}", e)))?;
+
+    Ok(Json(AuthToken {
+        token,
+        expires_at: expiration,
+    }))
+}
+-e 
+
+--- File: PocketForge/backend/src/api/containers.rs ---
+use axum::{
+    extract::{Path, WebSocketUpgrade, ws::{WebSocket, Message}},
+    response::IntoResponse,
+    Json,
+};
+use http::StatusCode;
+use serde::{Serialize, Deserialize};
+use uuid::Uuid;
+use crate::models::Container;
+use crate::services::flyio;
+
+// --- Request/Response Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct CreateContainerRequest {
+    image: String,
+    repo_url: Option<String>,
+    // Add fields for BYO-Cloud keys if necessary
+}
+
+// --- Handlers ---
+
+pub async fn list_containers() -> Json<Vec<Container>> {
+    // In a real app, this would query the Supabase database for the user's containers
+    // Mock data for container list
+    Json(vec![
+        Container {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            fly_app_name: "pf-user-123-c1".to_string(),
+            image: "alpine:latest".to_string(),
+            status: "running".to_string(),
+            external_port: 8080,
+            created_at: chrono::Utc::now(),
+            last_used_at: chrono::Utc::now(),
+        },
+    ])
+}
+
+pub async fn create_container(Json(payload): Json<CreateContainerRequest>) -> impl IntoResponse {
+    // K-God Persona: Build systems, not scripts. This function orchestrates the VM creation.
+    let app_name = format!("pf-user-{}-{}", Uuid::new_v4().to_string().split('-').next().unwrap_or("temp"), Uuid::new_v4().to_string().split('-').next().unwrap_or("temp"));
+
+    match flyio::provision_firecracker_vm(&app_name).await {
+        Ok(msg) => {
+            // In a real app, we would save the new container record to Supabase here.
+            tracing::info!("Container provisioned: {}", msg);
+            (StatusCode::CREATED, Json(serde_json::json!({"message": "Container creation initiated.", "app_name": app_name})))
+        }
+        Err(e) => {
+            tracing::error!("Failed to provision container: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to provision container on Fly.io"})))
+        }
+    }
+}
+
+pub async fn terminal_websocket(
+    ws: WebSocketUpgrade,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, id))
+}
+
+async fn handle_socket(mut socket: WebSocket, id: String) {
+    // This is the core of the terminal. It needs to proxy the WebSocket connection
+    // to the actual PTY server running inside the Firecracker microVM.
+    // The PTY server is assumed to be running a libssh-based WebSocket proxy.
+
+    tracing::info!("Terminal connection established for container: {}", id);
+    
+    // Placeholder for PTY connection logic
+    while let Some(msg) = socket.recv().await {
+        if let Ok(msg) = msg {
+            match msg {
+                Message::Text(t) => {
+                    // Forward text to remote PTY server
+                    tracing::debug!("Received terminal input: {}", t);
+                    // Mock response: Echo the command and a prompt
+                    let output = format!("$ {}\n", t);
+                    if socket.send(Message::Text(output)).await.is_err() {
+                        break;
+                    }
+                }
+                Message::Close(_) => {
+                    tracing::info!("Terminal connection closed for container: {}", id);
+                    break;
+                }
+                _ => {}
+            }
+        } else {
+            // Client disconnected
+            break;
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/backend/src/api/extensions.rs ---
+use axum::{
+    response::IntoResponse,
+    Json,
+};
+use http::StatusCode;
+use crate::models::Extension;
+
+pub async fn list_marketplace_extensions() -> Json<Vec<Extension>> {
+    // K-God Persona: Ship with confidence. Mocking a production-ready marketplace API response.
+    Json(vec![
+        Extension {
+            id: "pocketforge.git-lens-mobile".to_string(),
+            name: "GitLens Mobile".to_string(),
+            publisher: "PocketForge Team".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Visualize code authorship at a glance via Git blame annotations.".to_string(),
+            download_url: "https://marketplace.pocketforge.app/git-lens-mobile.vxix".to_string(),
+            install_count: 15420,
+        },
+        Extension {
+            id: "pocketforge.rust-analyzer-lite".to_string(),
+            name: "Rust Analyzer Lite".to_string(),
+            publisher: "Community".to_string(),
+            version: "0.1.5".to_string(),
+            description: "Lightweight language server for Rust projects.".to_string(),
+            download_url: "https://marketplace.pocketforge.app/rust-analyzer-lite.vxix".to_string(),
+            install_count: 8900,
+        },
+        Extension {
+            id: "pocketforge.docker-compose-ui".to_string(),
+            name: "Docker Compose UI".to_string(),
+            publisher: "PocketForge Team".to_string(),
+            version: "2.1.0".to_string(),
+            description: "Graphical interface for managing docker-compose services.".to_string(),
+            download_url: "https://marketplace.pocketforge.app/docker-compose-ui.vxix".to_string(),
+            install_count: 22000,
+        },
+    ])
+}
+-e 
+
+--- File: PocketForge/backend/src/api/health.rs ---
+use axum::response::IntoResponse;
+use http::StatusCode;
+
+pub async fn health_check() -> impl IntoResponse {
+    (StatusCode::OK, "OK")
+}
+-e 
+
+--- File: PocketForge/backend/src/api/mod.rs ---
+pub mod ai;
+pub mod auth;
+pub mod containers;
+pub mod health;
+pub mod extensions;
+-e 
+
+--- File: PocketForge/backend/src/main.rs ---
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use std::net::SocketAddr;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+mod api;
+mod models;
+mod services;
+
+#[tokio::main]
+async fn main() {
+    // Initialize tracing (logging)
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "pocketforge_backend=debug,tower_http=debug".into()),
+        ))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    // Database connection pool (using a placeholder for now)
+    // let pool = sqlx::PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"))
+    //     .await
+    //     .expect("Failed to connect to Postgres.");
+
+    // Build the application router
+    let app = Router::new()
+        // Public routes
+        .route("/health", get(api::health::health_check))
+        .route("/auth/github", get(api::auth::github_auth))
+        .route("/auth/callback", get(api::auth::github_callback))
+        // Authenticated routes
+        .route("/containers", get(api::containers::list_containers).post(api::containers::create_container))
+        .route("/containers/:id/terminal", get(api::containers::terminal_websocket))
+        .route("/ai/mtc", post(api::ai::mtc_handler))
+        .route("/extensions/marketplace", get(api::extensions::list_marketplace_extensions)) // NEW ROUTE
+        // .layer(Extension(pool)) // Add database pool to state
+        .layer(
+            // Middleware for logging and CORS
+            tower_http::trace::TraceLayer::new_for_http(),
+        );
+
+    // Run the server
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    tracing::debug!("listening on {}", addr);
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+-e 
+
+--- File: PocketForge/backend/src/models/mod.rs ---
+use serde::{Serialize, Deserialize};
+use uuid::Uuid;
+use chrono::{DateTime, Utc};
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct User {
+    pub id: Uuid,
+    pub github_id: String,
+    pub github_login: String,
+    pub email: Option<String>,
+    pub is_pro: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Container {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub fly_app_name: String,
+    pub image: String,
+    pub status: String, // e.g., "pending", "running", "stopped", "sleeping"
+    pub external_port: u16,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthToken {
+    pub token: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub user_id: Uuid,
+    pub exp: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Extension {
+    pub id: String, // e.g., "pocketforge.git-lens-mobile"
+    pub name: String,
+    pub publisher: String,
+    pub version: String,
+    pub description: String,
+    pub download_url: String, // URL to the VXIX file
+    pub install_count: i32,
+}
+-e 
+
+--- File: PocketForge/backend/src/services/flyio.rs ---
+use reqwest::Client;
+use serde_json::json;
+
+pub async fn provision_firecracker_vm(app_name: &str) -> Result<String, reqwest::Error> {
+    // K-God Persona: Think architecturally. This function is the bridge to the Fly.io API.
+    let client = Client::new();
+    let fly_api_token = std::env::var("FLY_API_TOKEN").unwrap_or_default();
+    
+    if fly_api_token.is_empty() {
+        // Return a mock success if token is missing for local testing
+        return Ok(format!("VM provisioned (MOCK) for app: {}", app_name));
+    }
+
+    // 1. Create the application
+    let create_app_query = r#"
+        mutation($input: CreateAppInput!) {
+            createApp(input: $input) {
+                app {
+                    name
+                }
+            }
+        }
+    "#;
+    
+    let create_app_res = client.post("https://api.fly.io/graphql")
+        .header("Authorization", format!("Bearer {}", fly_api_token))
+        .json(&json!({
+            "query": create_app_query,
+            "variables": { 
+                "input": {
+                    "organizationId": std::env::var("FLY_ORG_ID").unwrap_or_else(|_| "personal".to_string()),
+                    "name": app_name,
+                    "network": "default"
+                }
+            }
+        }))
+        .send()
+        .await?;
+
+    if !create_app_res.status().is_success() {
+        let error_text = create_app_res.text().await?;
+        return Err(reqwest::Error::new(reqwest::error::ErrorKind::Other, format!("Fly.io createApp failed: {}", error_text)));
+    }
+    
+    // 2. Deploy the machine (Firecracker microVM)
+    // This is the critical step: deploying a machine with the PocketForge runtime image.
+    // In a real scenario, we would use the Machines API (REST) instead of GraphQL for deployment.
+    // For this example, we simulate the machine deployment.
+    
+    // The actual deployment would involve:
+    // POST /v1/apps/{app_name}/machines
+    // Body: { "config": { "image": "pocketforge/runtime:latest", "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 1024 } } }
+    
+    Ok(format!("VM provisioned and machine deployment initiated for app: {}", app_name))
+}
+-e 
+
+--- File: PocketForge/backend/src/services/mod.rs ---
+pub mod flyio;
+pub mod supabase;
+pub mod stripe;
+-e 
+
+--- File: PocketForge/backend/src/services/stripe.rs ---
+pub async fn create_checkout_session(price_id: &str, user_id: &str) -> Result<String, String> {
+    // Placeholder for Stripe API call
+    Ok(format!("https://checkout.stripe.com/pay/{}", price_id))
+}
+-e 
+
+--- File: PocketForge/backend/src/services/supabase.rs ---
+use sqlx::PgPool;
+
+pub async fn get_user_by_github_id(pool: &PgPool, github_id: &str) -> Result<(), sqlx::Error> {
+    // Placeholder for database query
+    // sqlx::query!("SELECT * FROM users WHERE github_id = $1", github_id)
+    //     .fetch_one(pool)
+    //     .await
+    //     .map(|_| ())
+    //     .map_err(|e| e)
+    Ok(())
+}
+-e 
+

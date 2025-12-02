@@ -1,0 +1,39 @@
+PocketForge/
+├── backend/
+│   ├── Cargo.toml
+│   └── src/
+│       ├── api/
+│       │   ├── ai.rs
+│       │   ├── auth.rs
+│       │   ├── containers.rs
+│       │   └── health.rs
+│       ├── main.rs
+│       ├── models/
+│       └── services/
+│           ├── mod.rs
+│           ├── flyio.rs
+│           ├── supabase.rs
+│           └── stripe.rs
+├── devops/
+│   └── .github/
+│       └── workflows/
+├── frontend/
+│   ├── android/
+│   ├── build.gradle.kts
+│   ├── common/
+│   │   └── src/
+│   │       └── kotlin/
+│   │           └── com/
+│   │               └── pocketforge/
+│   │                   ├── App.kt
+│   │                   └── ui/
+│   │                       └── screens/
+│   │                           └── LoginScreen.kt
+│   ├── desktop/
+│   ├── gradle/
+│   │   └── libs.versions.toml
+│   ├── ios/
+│   └── web/
+├── build.gradle.kts
+├── settings.gradle.kts
+└── project_tree.txt

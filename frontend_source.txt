@@ -1,0 +1,320 @@
+--- File: PocketForge/frontend/common/src/kotlin/App.kt ---
+package com.pocketforge
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import cafe.adriel.voyager.navigator.Navigator
+import com.pocketforge.ui.screens.LoginScreen
+
+@Composable
+fun App() {
+    MaterialTheme {
+        Navigator(LoginScreen)
+    }
+}
+
+expect fun getPlatformName(): String
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/components/TerminalView.kt ---
+package com.pocketforge.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.pocketforge.viewmodel.TerminalViewModel
+import kotlinx.coroutines.launch
+
+@Composable
+fun TerminalView(
+    modifier: Modifier = Modifier,
+    viewModel: TerminalViewModel
+) {
+    val scrollState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Split output into lines for display
+    val outputLines = viewModel.terminalOutput.split('\n')
+
+    Column(modifier = modifier.background(Color(0xFF1E1E1E))) {
+        // 1. Terminal Output Area
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            state = scrollState
+        ) {
+            items(outputLines) { line ->
+                Text(
+                    text = line,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                )
+            }
+        }
+
+        // Auto-scroll to bottom on new output
+        LaunchedEffect(outputLines.size) {
+            if (outputLines.isNotEmpty()) {
+                coroutineScope.launch {
+                    scrollState.animateScrollToItem(outputLines.size - 1)
+                }
+            }
+        }
+
+        // 2. Terminal Input Area
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "$ ",
+                color = Color.Green,
+                fontSize = 14.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+            )
+            
+            BasicTextField(
+                value = viewModel.terminalInput,
+                onValueChange = viewModel::onInputChanged,
+                textStyle = TextStyle(
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                ),
+                singleLine = true,
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onKeyEvent {
+                        if (it.key == Key.Enter && it.type == KeyEventType.KeyUp) {
+                            viewModel.onEnterPressed()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+            )
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/screens/LoginScreen.kt ---
+package com.pocketforge.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+
+object LoginScreen : Screen {
+    @Composable
+    override fun Content() {
+        val navigator = LocalNavigator.currentOrThrow
+
+        Scaffold(
+            topBar = {
+                TopAppBar(title = { Text("PocketForge") })
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Welcome to PocketForge",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(bottom = 32.dp)
+                )
+                
+                Button(
+                    onClick = {
+                        // In a real app, this would initiate the GitHub OAuth flow
+                        println("Initiating GitHub Login...")
+                        // Mock navigation to terminal with a placeholder container ID
+                        navigator.push(TerminalScreen("pf-c-12345"))
+                    },
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    Text("Sign in with GitHub")
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                
+                TextButton(onClick = {
+                    // Placeholder for offline mode entry
+                    navigator.push(TerminalScreen("local-c-0001"))
+                }) {
+                    Text("Continue in Offline Mode")
+                }
+            }
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/ui/screens/TerminalScreen.kt ---
+package com.pocketforge.ui.screens
+
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import cafe.adriel.voyager.core.screen.Screen
+import com.pocketforge.ui.components.TerminalView
+import com.pocketforge.viewmodel.TerminalViewModel
+
+data class TerminalScreen(val containerId: String) : Screen {
+    @Composable
+    override fun Content() {
+        val viewModel = remember { TerminalViewModel(containerId) }
+
+        Scaffold(
+            topBar = {
+                TopAppBar(title = { Text("PocketForge - Container: $containerId") })
+            }
+        ) { paddingValues ->
+            TerminalView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                viewModel = viewModel
+            )
+        }
+    }
+}
+-e 
+
+--- File: PocketForge/frontend/common/src/kotlin/com/pocketforge/viewmodel/TerminalViewModel.kt ---
+package com.pocketforge.viewmodel
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import io.ktor.client.*
+import io.ktor.client.plugins.websocket.*
+import io.ktor.http.*
+import io.ktor.websocket.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.launch
+
+class TerminalViewModel(private val containerId: String) {
+    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val client = HttpClient {
+        install(WebSockets)
+    }
+
+    var terminalOutput by mutableStateOf("Connecting to container $containerId...\n")
+        private set
+    
+    var terminalInput by mutableStateOf("")
+        private set
+
+    init {
+        connectToTerminal()
+    }
+
+    private fun connectToTerminal() {
+        scope.launch {
+            try {
+                client.webSocket(
+                    method = HttpMethod.Get,
+                    host = "localhost", // Replace with actual backend URL
+                    port = 8080,
+                    path = "/containers/$containerId/terminal"
+                ) {
+                    terminalOutput += "Connection established. Type 'help' and press Enter.\n"
+                    
+                    // Incoming messages
+                    val incomingJob = launch {
+                        try {
+                            for (frame in incoming) {
+                                if (frame is Frame.Text) {
+                                    terminalOutput += frame.readText()
+                                }
+                            }
+                        } catch (e: ClosedReceiveChannelException) {
+                            terminalOutput += "\n[Connection closed by server]\n"
+                        } catch (e: Exception) {
+                            terminalOutput += "\n[Error: ${e.message}]\n"
+                        }
+                    }
+                    
+                    // Keep the connection alive until the scope is cancelled
+                    incomingJob.join()
+                }
+            } catch (e: Exception) {
+                terminalOutput += "\n[Failed to connect: ${e.message}]\n"
+            }
+        }
+    }
+
+    fun onInputChanged(newInput: String) {
+        terminalInput = newInput
+    }
+
+    fun onEnterPressed() {
+        val command = terminalInput.trim()
+        if (command.isNotEmpty()) {
+            // Send command to WebSocket
+            scope.launch {
+                try {
+                    client.webSocketSession(
+                        method = HttpMethod.Get,
+                        host = "localhost",
+                        port = 8080,
+                        path = "/containers/$containerId/terminal"
+                    ).send(Frame.Text(command))
+                } catch (e: Exception) {
+                    terminalOutput += "\n[Error sending command: ${e.message}]\n"
+                }
+            }
+            
+            // Clear input and append to output immediately for local echo effect
+            terminalOutput += "$command\n"
+            terminalInput = ""
+        }
+    }
+    
+    // Placeholder for AI Agent interaction
+    fun runAiAgent(prompt: String) {
+        // Logic to call the MTC API endpoint
+        terminalOutput += "\n[AI Agent called with prompt: $prompt]\n"
+    }
+}
+-e 
+

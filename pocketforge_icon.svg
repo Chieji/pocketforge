@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="512" height="512" rx="128" fill="#121212"/>
+<path d="M140 180H220C253.137 180 280 206.863 280 240V332C280 365.137 253.137 392 220 392H140V180Z" fill="#00FF7F"/>
+<path d="M300 180H380V392H300V180Z" fill="#00FF7F"/>
+<path d="M220 286H140V332H220C237.673 332 252 317.673 252 300C252 282.327 237.673 268 220 268H140V286Z" fill="#121212"/>
+<path d="M380 286H300V332H380V286Z" fill="#121212"/>
+<rect x="390" y="360" width="20" height="32" fill="#FFD700"/>
+<text x="150" y="230" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#121212">P</text>
+<text x="310" y="230" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#121212">F</text>
+<text x="150" y="370" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#121212">P</text>
+<text x="310" y="370" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#121212">F</text>
+</svg>
