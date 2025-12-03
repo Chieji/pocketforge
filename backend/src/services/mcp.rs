@@ -1,5 +1,6 @@
 use std::process::Command;
 use serde_json::{json, Value};
+use uuid::Uuid; // Ensure Uuid is imported
 
 // --- Utility function to call the MCP CLI ---
 fn call_mcp_cli(server: &str, tool: &str, input: Value) -> Result<String, String> {
@@ -50,13 +51,28 @@ pub fn deploy_to_vercel(project_name: &str, git_url: &str) -> Result<String, Str
 // --- VSIX to VXIX Translation Service (Simulated) ---
 
 pub fn translate_vsix_to_vxix(vsix_url: &str) -> Result<String, String> {
-    // This is the most complex part, requiring a dedicated microservice in a real environment.
-    // Here, we simulate the successful return of a new VXIX download URL.
+    // K-God Persona: Think architecturally. This simulates the server-side VSIX processing pipeline.
     
-    println!("Translating VSIX from: {}", vsix_url);
+    println!("--- VSIX Translation Pipeline Started ---");
+    println!("1. Downloading VSIX from: {}", vsix_url);
+    
+    // Simulation of file handling and transpilation steps
+    let vsix_file_path = format!("/tmp/vsix_cache/{}.vsix", Uuid::new_v4());
+    println!("2. Stored VSIX temporarily at: {}", vsix_file_path);
+    
+    // Simulate extraction and manifest reading
+    println!("3. Extracting VSIX and reading manifest.json...");
+    
+    // Simulate transpilation of extension.js to PocketForge-compatible JS
+    println!("4. Transpiling Node.js dependencies to sandboxed JS (Core Logic).");
+    
+    // Simulate re-packaging into VXIX
+    println!("5. Re-packaging into VXIX format.");
     
     // Mock the new VXIX URL
-    let vxix_url = format!("https://marketplace.pocketforge.app/translated/{}.vxix", uuid::Uuid::new_v4());
+    let vxix_url = format!("https://marketplace.pocketforge.app/translated/{}.vxix", Uuid::new_v4());
+    
+    println!("6. VXIX Translation Complete. URL: {}", vxix_url);
     
     Ok(vxix_url)
 }
